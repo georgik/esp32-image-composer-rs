@@ -24,7 +24,11 @@ impl ImageBuilder {
         if !firmwares.is_empty() {
             let bootloader = &firmwares[0];
             info!("Writing bootloader: {} bytes", bootloader.size);
-            Self::write_to_flash(&mut flash_image, 0x0000, &bootloader.data)?;
+            Self::write_to_flash(
+                &mut flash_image,
+                crate::config::defaults::BOOTLOADER_OFFSET,
+                &bootloader.data,
+            )?;
         }
 
         // Write partition table

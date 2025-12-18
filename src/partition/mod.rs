@@ -16,7 +16,7 @@ impl PartitionGenerator {
 
         let mut partitions = Vec::new();
 
-        // Add bootloader partition
+        // Add bootloader partition (ESP32-P4 specific offset)
         partitions.push(Partition::new(
             "bootloader".to_string(),
             Type::App,

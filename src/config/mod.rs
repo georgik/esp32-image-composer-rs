@@ -45,8 +45,8 @@ impl Default for Config {
 
 pub mod defaults {
 
-    pub const BOOTLOADER_OFFSET: u32 = 0x0000;
-    pub const BOOTLOADER_SIZE: u32 = 32 * 1024; // 32KB
+    pub const BOOTLOADER_OFFSET: u32 = 0x2000; // ESP32-P4 specific offset
+    pub const BOOTLOADER_SIZE: u32 = 24 * 1024; // 24KB (to fit between 0x2000 and 0x8000)
     pub const PARTITION_TABLE_OFFSET: u32 = 0x8000;
     pub const PARTITION_TABLE_SIZE: u32 = 4 * 1024; // 4KB
     pub const NVS_OFFSET: u32 = 0x9000;
