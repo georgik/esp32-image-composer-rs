@@ -32,6 +32,10 @@ pub struct Args {
     /// Dry run - show what would be done without creating files
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Pad image to full flash size with 0xFF (default: minimal size)
+    #[arg(long)]
+    pub pad_flash: bool,
 }
 
 #[derive(Subcommand)]
@@ -57,6 +61,20 @@ pub enum Commands {
         /// Show binary sizes and layout information
         #[arg(long)]
         show_sizes: bool,
+    },
+
+    /// Inspect and analyze generated flash images
+    Inspect {
+        /// Flash image file to analyze
+        image_file: PathBuf,
+
+        /// Show detailed component analysis
+        #[arg(long)]
+        detailed: bool,
+
+        /// Verify checksums of all components
+        #[arg(long)]
+        verify_checksums: bool,
     },
 }
 
