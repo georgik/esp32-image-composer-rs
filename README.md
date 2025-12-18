@@ -1,10 +1,85 @@
 # ESP32 Image Composer (Rust)
 
-A command-line tool for creating ESP32 flash images from firmware binaries with dynamic partition table generation. Built specifically for ESP32-P4 multi-stage bootloader systems.
+A command-line tool for creating ESP32 flash images from firmware binaries with dynamic partition table generation. Built specifically for ESP32-P4 multi-stage bootloader systems and production firmware deployment.
 
 ## Purpose
 
-This tool addresses the limitations of static partition tables by dynamically generating ESP-IDF compatible partition tables based on actual firmware sizes. It replaces the JavaScript-based implementation with a more reliable, well-tested solution.
+This tool addresses the limitations of static partition tables by dynamically generating ESP-IDF compatible partition tables based on actual firmware sizes.
+
+## ESP32-P4 Support
+
+The ESP32 Image Composer provides comprehensive support for ESP32-P4 devices with specific optimizations and considerations:
+
+### ESP32-P4 Memory Layout
+
+ESP32-P4 uses a different memory layout compared to other ESP32 variants:
+
+```
+ESP32-P4 Flash Layout (from ESP-IDF flash_args):
+0x02000  +-------------------+  [Bootloader - 32KB]
+         |   bootloader      |
+0x10000  +-------------------+  [Partition Table - 4KB]
+         | partition-table   |
+0x11000  +-------------------+  [Padding/Reserved]
+0x20000  +-------------------+  [Factory App - 576KB+]
+         |  factory app      |
+         | (02-*.bin)       |
+0x120000 +-------------------+  [OTA_0 - variable]
+         |       ota_0       |
+         |    (03-*.bin)     |
+         +-------------------+  [...]
+```
+
+### Key ESP32-P4 Differences
+
+- **Bootloader Offset**: `0x2000` (unlike ESP32's `0x1000` or ESP32-S3's `0x0`)
+- **Partition Table**: `0x10000` (provides more space between bootloader and partitions)
+- **Factory App**: `0x20000` (64KB-aligned for optimal performance)
+- **Checksum Handling**: Preserves original ESP-IDF calculated checksums
+
+### ESP32-P4 Best Practices
+
+1. **Preserve Original Checksums**: The tool automatically preserves checksums calculated by ESP-IDF build system
+2. **64KB Alignment**: All application partitions are automatically aligned to 64KB boundaries
+3. **Minimal Padding**: Uses minimal image size by default, avoiding unnecessary 0xFF padding
+4. **Header Preservation**: Maintains original ESP32 image headers and flags
+
+### ESP32-P4 Development Workflow
+
+```bash
+# Build ESP32-P4 firmware (in your ESP-IDF project)
+idf.py build
+
+# Use this tool to create flash image
+esp32-image-composer-rs \
+    --firmware-dir ./build \
+    --output ./firmware-flash.bin \
+    --flash-size 16MB \
+    --verbose
+
+# Verify the image before flashing
+esp32-image-composer-rs inspect ./firmware-flash.bin --verify-checksums
+
+# Flash to device
+esptool.py --chip esp32p4 write_flash 0x2000 ./firmware-flash.bin
+```
+
+### ESP32-P4 Troubleshooting
+
+**"Checksum failure. Calculated 0x00 stored 0xff"**
+- Ensure firmware binaries are built with ESP-IDF v5.5+
+- Verify original binaries have valid checksums before using this tool
+- The tool preserves checksums - if original is broken, result will be broken
+
+**"invalid header: 0x40b2d7a0"**
+- Check that bootloader is placed at correct offset `0x2000`
+- Verify ESP32-P4 specific layout requirements
+- Use `--dry-run` to preview layout before generating
+
+**Image hash failed**
+- Factory application checksums are now preserved automatically
+- Ensure original app binaries are complete and uncorrupted
+- Check that partition table correctly identifies factory partition
 
 ## Features
 
@@ -93,11 +168,21 @@ src/
 ├── lib.rs              # Library interface and exports
 ├── main.rs             # CLI entry point and command handling
 ├── cli/mod.rs          # Command-line argument definitions
-├── config/mod.rs       # Configuration management and constants
+├── config/mod.rs       # Configuration management and ESP32-P4 constants
+├── esp32.rs            # ESP32-P4 specific processing and checksum handling
 ├── firmware/mod.rs     # Firmware discovery and loading logic
 ├── partition/mod.rs    # Partition table generation using esp_idf_part
 └── image/mod.rs        # Flash image assembly and binary operations
 ```
+
+### ESP32-P4 Processing Module
+
+The `esp32.rs` module contains ESP32-P4 specific optimizations:
+
+- **Checksum Preservation**: Maintains original ESP-IDF calculated checksums
+- **Header Processing**: Handles ESP32-P4 specific image headers without modification
+- **Layout Verification**: Ensures proper ESP32-P4 memory layout and alignment
+- **Error Recovery**: Detailed error messages for ESP32-P4 specific issues
 
 ### Partition Generation Algorithm
 
@@ -109,26 +194,39 @@ src/
 
 ### Memory Layout
 
+The tool automatically detects and uses the correct layout for different ESP32 variants:
+
+**ESP32-P4 Layout (default):**
 ```
-0x00000  +-------------------+  [Bootloader - 32KB]
+0x02000  +-------------------+  [Bootloader - 32KB]
+         |   bootloader      |
+0x10000  +-------------------+  [Partition Table - 4KB]
+         | partition-table   |
+0x20000  +-------------------+  [Factory App - variable]
+         |      factory      |
+         |    (02-*.bin)     |
+0x120000 +-------------------+  [OTA_0 - variable]
+         |       ota_0       |
+         |    (03-*.bin)     |
+         +-------------------+  [...]
+```
+
+**Traditional ESP32 Layout:**
+```
+0x01000  +-------------------+  [Bootloader - 32KB]
          |   bootloader      |
 0x08000  +-------------------+  [Partition Table - 4KB]
          | partition-table   |
 0x09000  +-------------------+  [NVS - 24KB]
          |       nvs         |
-0x11000  +-------------------+  [Padding]
 0x0F000  +-------------------+  [OTA Data - 8KB]
          |     otadata       |
-0x17000  +-------------------+  [Padding]
 0x18000  +-------------------+  [Factory App - 1MB+]
          |      factory      |
          |    (02-*.bin)     |
 0x118000 +-------------------+  [OTA_0 - variable]
          |       ota_0       |
          |    (03-*.bin)     |
-         +-------------------+  [OTA_1 - variable]
-         |       ota_1       |
-         |    (04-*.bin)     |
          +-------------------+  [...]
 ```
 
@@ -174,25 +272,60 @@ cargo test --bin esp32-image-composer-rs  # Integration tests
 
 ## Troubleshooting
 
+### ESP32-P4 Specific Issues
+
+**"Checksum failure. Calculated 0x00 stored 0xff"**
+- Ensure firmware binaries are built with ESP-IDF v5.5+
+- Verify original binaries have valid checksums before using this tool
+- The tool preserves checksums - if original is broken, result will be broken
+- Check ESP-IDF build logs for any checksum warnings during compilation
+
+**"invalid header: 0x40b2d7a0"**
+- Bootloader is not at correct offset `0x2000` for ESP32-P4
+- Verify ESP32-P4 specific layout requirements are met
+- Use `--dry-run` to preview layout before generating final image
+- Check that firmware follows ESP32-P4 naming convention (01-*.bin for bootloader)
+
+**"Image hash failed - image is corrupt"**
+- Factory application checksums are preserved automatically in latest versions
+- Ensure original app binaries are complete and uncorrupted
+- Check that partition table correctly identifies factory partition
+- Verify ESP-IDF build completed successfully without errors
+
+**"Partition table validation failed"**
+- ESP32-P4 requires 64KB alignment for application partitions
+- Check that factory app starts at `0x20000` (64KB boundary)
+- Verify partition table MD5 checksum is calculated correctly
+- Use `inspect` command to analyze partition table structure
+
 ### Common Issues
 
 **"Firmware directory does not exist"**
 - Ensure the `--firmware-dir` path is correct
 - Directory must contain `*.bin` files with numerical prefixes
+- For ESP32-P4: expect `01-bootloader.bin`, `02-*.bin`, etc.
 
 **"Partition overlaps with partition"**
 - Check firmware sizes vs available flash space
 - Consider using larger `--flash-size` or reducing `--max-ota-partitions`
+- ESP32-P4 has larger minimum partition sizes due to alignment requirements
 
 **"Not enough flash space"**
 - Increase flash size with `--flash-size 32MB`
 - Reduce number of OTA partitions
-- Check for unusually large firmware files
+- Check for unusually large firmware files (common with graphical applications)
 
 ### Debug Mode
 
 ```bash
+# ESP32-P4 specific debugging
 esp32-image-composer-rs --verbose --firmware-dir ./firmwares --dry-run
+
+# Inspect generated image
+esp32-image-composer-rs inspect ./output.bin --verify-checksums --detailed
+
+# Validate firmware before processing
+esp32-image-composer-rs validate --firmware-dir ./firmwares --detailed
 ```
 
 ## Integration with Build Systems
@@ -235,14 +368,5 @@ add_custom_command(
 
 ## License
 
-This project is part of the ESP32-P4 Graphical Bootloader project. See parent project for license details.
+MIT
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Ensure all tests pass and the code follows the existing style conventions.

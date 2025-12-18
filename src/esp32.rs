@@ -337,8 +337,9 @@ impl Esp32P4Processor {
         // For ESP32-P4 apps, we work with existing structure
         info!("Using existing app structure without extended header modification");
 
-        // Calculate and patch checksum
-        EspChecksum::calculate_and_patch_checksum(app_data)?;
+        // Preserve original application checksum (don't recalculate)
+        // Like bootloader, original apps already have correct checksums
+        info!("Preserving original app checksum");
 
         info!("ESP32-P4 app image processed successfully with extended header");
         Ok(())
